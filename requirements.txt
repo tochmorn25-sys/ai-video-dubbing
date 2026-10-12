@@ -1,0 +1,6 @@
+streamlit
+pandas
+openai-whisper
+deep-translator
+edge-tts
+moviepy<2.0.0
