@@ -1,7 +1,5 @@
 streamlit
 pandas
 openai-whisper
-deep-translator
-gTTS
-moviepy<2.0.0
+edge-tts
 openai
