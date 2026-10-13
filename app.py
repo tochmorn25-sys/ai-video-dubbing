@@ -1,17 +1,16 @@
 import streamlit as st
 import pandas as pd
 import whisper
-import edge_tts
-import asyncio
+from gtts import gTTS # ប្ដូរមកប្រើប្រព័ន្ធសំឡេងរបស់ Google វិញ
 import os
 import moviepy.editor as mp
-from openai import OpenAI # ទាញយកប្រព័ន្ធ OpenAI
+from openai import OpenAI
 
 # ១. រៀបចំទំហំ និងឈ្មោះ Web App
 st.set_page_config(page_title="AI Video Dubbing Pro", layout="centered")
 st.title("🎬 កម្មវិធីបកប្រែ និងបញ្ចូលសំឡេង AI (Khmer Dubbing Pro)")
 
-# បន្ថែមកន្លែងដាក់ API Key របស់ OpenAI ដើម្បីសុវត្ថិភាព
+# បន្ថែមកន្លែងដាក់ API Key របស់ OpenAI
 api_key = st.text_input("🔑 សូមបញ្ចូល OpenAI API Key របស់អ្នកទីនេះ (ចាប់ផ្តើមដោយ sk-...):", type="password")
 
 # ២. កន្លែងសម្រាប់ Upload វីដេអូ
@@ -25,20 +24,13 @@ col1, col2 = st.columns(2)
 with col1:
     target_lang = st.selectbox("Target Language", ["Khmer (Cambodia)"])
 with col2:
-    voice_option = st.selectbox("Voice", ["km-KH-SreymomNeural (Female)", "km-KH-PisethNeural (Male)"])
-    # កំណត់កូដសំឡេងតាមការជ្រើសរើស
-    voice_id = "km-KH-SreymomNeural" if "Female" in voice_option else "km-KH-PisethNeural"
-
-# មុខងារ AI សម្រាប់បង្កើតសំឡេង (TTS)
-async def generate_tts(text, voice, output_file):
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(output_file)
+    voice_option = st.selectbox("Voice", ["Google Standard Voice"])
 
 # ៤. ប៊ូតុងបញ្ជា
 col3, col4 = st.columns(2)
 with col3:
     if st.button("🗑️ Clear", use_container_width=True):
-        st.rerun() # សម្រាប់ Refresh វេបសាយឡើងវិញ
+        st.rerun()
         
 with col4:
     if st.button("✅ Dubbed (ចាប់ផ្តើមបញ្ចូលសំឡេង)", type="primary", use_container_width=True):
@@ -64,10 +56,10 @@ with col4:
                     result = model.transcribe(audio_path)
                     original_text = result["text"]
 
-                    # ជំហានឃ: បកប្រែជាភាសាខ្មែរ ដោយប្រើ OpenAI API (ដោះស្រាយបញ្ហាគាំង Server Error)
+                    # ជំហានឃ: បកប្រែជាភាសាខ្មែរ ដោយប្រើ OpenAI API
                     client = OpenAI(api_key=api_key)
                     response = client.chat.completions.create(
-                        model="gpt-4o-mini", # ប្រើម៉ូដែលនេះលឿន និងចំណាយតិចបំផុត
+                        model="gpt-4o-mini",
                         messages=[
                             {"role": "system", "content": "You are a professional translator. Translate the following text to Khmer (Cambodian). Return ONLY the translated text, without any quotes or extra explanations."},
                             {"role": "user", "content": original_text}
@@ -75,15 +67,16 @@ with col4:
                     )
                     khmer_text = response.choices[0].message.content.strip()
 
-                    # បង្ហាញតារាងអត្ថបទ (Transcript Table) នៅលើវេបសាយ
+                    # បង្ហាញតារាងអត្ថបទ
                     st.markdown("### 📝 TRANSCRIPT")
                     data = {"Original": [original_text], "Translated": [khmer_text]}
                     df = pd.DataFrame(data)
                     st.dataframe(df, hide_index=True, use_container_width=True)
 
-                    # ជំហានង: ឱ្យ AI អានសំឡេងខ្មែរ
+                    # ជំហានង: ឱ្យ AI អានសំឡេងខ្មែរ (ដោយប្រើប្រព័ន្ធ Google TTS)
                     tts_audio_path = "temp_khmer_audio.mp3"
-                    asyncio.run(generate_tts(khmer_text, voice_id, tts_audio_path))
+                    tts = gTTS(text=khmer_text, lang='km')
+                    tts.save(tts_audio_path)
 
                     # ជំហានច: កាត់តបញ្ចូលសំឡេងខ្មែរទៅក្នុងវីដេអូដើមវិញ
                     new_audio = mp.AudioFileClip(tts_audio_path)
