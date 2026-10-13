@@ -6,7 +6,6 @@ from openai import OpenAI
 import tempfile
 import time
 
-# ១. រៀបចំទំហំ និងឈ្មោះ Web App
 st.set_page_config(page_title="AI Subtitle Generator", layout="centered")
 st.title("🎬 កម្មវិធីបង្កើត Subtitle ខ្មែរ (.srt)")
 
@@ -16,7 +15,6 @@ uploaded_file = st.file_uploader("📥 សូមបញ្ចូលវីដេ�
 if uploaded_file is not None:
     st.video(uploaded_file)
 
-# អនុគមន៍សម្រាប់បម្លែងវិនាទីទៅជាទម្រង់ម៉ោង SRT (00:00:00,000)
 def format_timestamp(seconds):
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
@@ -34,24 +32,19 @@ if st.button("📝 បង្កើត Subtitle ខ្មែរ (.srt)", type="pr
             try:
                 client = OpenAI(api_key=api_key)
 
-                # រក្សាទុកវីដេអូទៅក្នុង temp directory របស់ប្រព័ន្ធ
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
                     tmp_vid.write(uploaded_file.read())
                     video_path = tmp_vid.name
 
                 audio_path = video_path.replace(".mp4", ".wav")
                 
-                # ទាញសំឡេងចេញ
                 subprocess.run(["ffmpeg", "-y", "-i", video_path, "-q:a", "0", "-map", "a", audio_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-                # ស្តាប់អក្សរដោយប្រើ Whisper និងយក Timestamp
                 model = whisper.load_model("base")
                 result = model.transcribe(audio_path)
                 segments = result["segments"]
 
                 srt_content = ""
-                
-                # បកប្រែ និងរៀបចំទម្រង់ SRT
                 st.write("កំពុងបកប្រែ...")
                 progress_bar = st.progress(0)
                 
@@ -60,7 +53,6 @@ if st.button("📝 បង្កើត Subtitle ខ្មែរ (.srt)", type="pr
                     end_time = format_timestamp(segment["end"])
                     original_text = segment["text"]
 
-                    # បកប្រែ
                     response_trans = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[
@@ -69,16 +61,13 @@ if st.button("📝 បង្កើត Subtitle ខ្មែរ (.srt)", type="pr
                         ]
                     )
                     khmer_text = response_trans.choices[0].message.content.strip()
-
                     srt_content += f"{i + 1}\n{start_time} --> {end_time}\n{khmer_text}\n\n"
                     
-                    # Update progress bar
                     progress_bar.progress((i + 1) / len(segments))
-                    time.sleep(0.5) # សម្រាកបន្តិចកុំឱ្យ API ដំណើរការញាប់ពេក
+                    time.sleep(0.5)
 
                 st.success("🎉 ការបង្កើត Subtitle ជោគជ័យ!")
                 
-                # បង្កើតប៊ូតុងសម្រាប់ទាញយកឯកសារ .srt
                 st.download_button(
                     label="⬇️ ទាញយកឯកសារ Subtitle (.srt)",
                     data=srt_content,
@@ -87,7 +76,6 @@ if st.button("📝 បង្កើត Subtitle ខ្មែរ (.srt)", type="pr
                     use_container_width=True
                 )
 
-                # លុបឯកសារបណ្តោះអាសន្ន
                 os.remove(video_path)
                 os.remove(audio_path)
 
