@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 import whisper
-import edge_tts
-import asyncio
+from gtts import gTTS
 import os
 import subprocess
 from openai import OpenAI
@@ -22,12 +21,7 @@ col1, col2 = st.columns(2)
 with col1:
     target_lang = st.selectbox("Target Language", ["Khmer (Cambodia)"])
 with col2:
-    voice_option = st.selectbox("Voice", ["km-KH-SreymomNeural (Female)", "km-KH-PisethNeural (Male)"])
-    voice_id = "km-KH-SreymomNeural" if "Female" in voice_option else "km-KH-PisethNeural"
-
-async def generate_tts(text, voice, output_file):
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(output_file)
+    voice_option = st.selectbox("Voice", ["Google Standard Voice"]) # ប្តូរមកប្រើ Google វិញកុំឲ្យគាំង
 
 if st.button("✅ Dubbed (ចាប់ផ្តើមបញ្ចូលសំឡេង)", type="primary", use_container_width=True):
     if not api_key:
@@ -66,14 +60,15 @@ if st.button("✅ Dubbed (ចាប់ផ្តើមបញ្ចូលសំឡ
                 st.markdown("### 📝 TRANSCRIPT")
                 st.dataframe(pd.DataFrame({"Original": [original_text], "Translated": [khmer_text]}), hide_index=True, use_container_width=True)
 
-                # ង. បង្កើតសំឡេង ស្រីមុំ/ពិសិដ្ឋ
+                # ង. បង្កើតសំឡេង ដោយប្រើប្រព័ន្ធ Google TTS (ដោះស្រាយបញ្ហាគាំង 403)
                 tts_audio_path = "temp_khmer_audio.mp3"
-                asyncio.run(generate_tts(khmer_text, voice_id, tts_audio_path))
+                tts = gTTS(text=khmer_text, lang='km')
+                tts.save(tts_audio_path)
 
                 # ច. លាយសំឡេងចូលគ្នា (Mix Audio) និងរក្សារាងវីដេអូឱ្យនៅដដែល
                 final_output_path = "final_dubbed_video.mp4"
                 
-                # កូដ FFmpeg សម្រាប់បន្ថយសំឡេងដើម (0.2) និងដាក់សំឡេងខ្មែរ (1.5) លាយចូលគ្នា
+                # កូដ FFmpeg សម្រាប់បន្ថយសំឡេងដើម (0.15) និងដាក់សំឡេងខ្មែរ (1.5) លាយចូលគ្នា
                 merge_cmd = [
                     "ffmpeg", "-y",
                     "-i", video_path,
@@ -81,7 +76,7 @@ if st.button("✅ Dubbed (ចាប់ផ្តើមបញ្ចូលសំឡ
                     "-filter_complex", "[0:a]volume=0.15[a1];[1:a]volume=1.5[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]",
                     "-map", "0:v",
                     "-map", "[a]",
-                    "-c:v", "copy", # ចំណុចនេះជួយរក្សារាងវីដេអូមិនឱ្យសំប៉ែត និងដើរលឿន
+                    "-c:v", "copy", 
                     "-c:a", "aac",
                     final_output_path
                 ]
