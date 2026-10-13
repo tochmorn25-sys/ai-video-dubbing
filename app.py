@@ -1,12 +1,14 @@
 import streamlit as st
-import pandas as pd
 import whisper
 import os
 import subprocess
 from openai import OpenAI
+import tempfile
+import time
 
-st.set_page_config(page_title="AI Video Dubbing Pro", layout="centered")
-st.title("🎬 កម្មវិធីបកប្រែ និងបញ្ចូលសំឡេង AI (OpenAI VIP)")
+# ១. រៀបចំទំហំ និងឈ្មោះ Web App
+st.set_page_config(page_title="AI Subtitle Generator", layout="centered")
+st.title("🎬 កម្មវិធីបង្កើត Subtitle ខ្មែរ (.srt)")
 
 api_key = st.text_input("🔑 សូមបញ្ចូល OpenAI API Key របស់អ្នកទីនេះ:", type="password")
 uploaded_file = st.file_uploader("📥 សូមបញ្ចូលវីដេអូទីនេះ (Upload Video)", type=["mp4", "mov"])
@@ -14,75 +16,80 @@ uploaded_file = st.file_uploader("📥 សូមបញ្ចូលវីដេ�
 if uploaded_file is not None:
     st.video(uploaded_file)
 
-col1, col2 = st.columns(2)
-with col1:
-    target_lang = st.selectbox("Target Language", ["Khmer (Cambodia)"])
-with col2:
-    voice_option = st.selectbox("Voice", ["OpenAI VIP Voice (Nova)"]) 
+# អនុគមន៍សម្រាប់បម្លែងវិនាទីទៅជាទម្រង់ម៉ោង SRT (00:00:00,000)
+def format_timestamp(seconds):
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = seconds % 60
+    milliseconds = int((seconds - int(seconds)) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{int(seconds):02d},{milliseconds:03d}"
 
-if st.button("✅ Dubbed (ចាប់ផ្តើមបញ្ចូលសំឡេង)", type="primary", use_container_width=True):
+if st.button("📝 បង្កើត Subtitle ខ្មែរ (.srt)", type="primary", use_container_width=True):
     if not api_key:
         st.error("⚠️ សូមបញ្ចូលកូដសោរ OpenAI API Key ជាមុនសិន!")
     elif uploaded_file is None:
         st.warning("⚠️ សូម Upload វីដេអូជាមុនសិន!")
     else:
-        with st.spinner("⏳ កំពុងដំណើរការ AI VIP (សូមរង់ចាំបន្តិចសម្រាប់វីដេអូវែង)..."):
+        with st.spinner("⏳ កំពុងដំណើរការ AI (សូមរង់ចាំ)..."):
             try:
                 client = OpenAI(api_key=api_key)
 
-                # ក. រក្សាទុកវីដេអូ
-                video_path = "temp_video.mp4"
-                with open(video_path, "wb") as f:
-                    f.write(uploaded_file.read())
+                # រក្សាទុកវីដេអូទៅក្នុង temp directory របស់ប្រព័ន្ធ
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
+                    tmp_vid.write(uploaded_file.read())
+                    video_path = tmp_vid.name
 
-                # ខ. ទាញសំឡេងចេញ
-                audio_path = "temp_audio.wav"
+                audio_path = video_path.replace(".mp4", ".wav")
+                
+                # ទាញសំឡេងចេញ
                 subprocess.run(["ffmpeg", "-y", "-i", video_path, "-q:a", "0", "-map", "a", audio_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-                # គ. ស្តាប់អក្សរ
+                # ស្តាប់អក្សរដោយប្រើ Whisper និងយក Timestamp
                 model = whisper.load_model("base")
                 result = model.transcribe(audio_path)
-                original_text = result["text"]
+                segments = result["segments"]
 
-                # ឃ. បកប្រែ 
-                response_trans = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": "You are a professional translator. Translate the following text to Khmer. Return ONLY the translated text."},
-                        {"role": "user", "content": original_text}
-                    ]
-                )
-                khmer_text = response_trans.choices[0].message.content.strip()
-
-                st.markdown("### 📝 TRANSCRIPT")
-                st.dataframe(pd.DataFrame({"Original": [original_text], "Translated": [khmer_text]}), hide_index=True, use_container_width=True)
-
-                # ង. បង្កើតសំឡេងដោយប្រើ OpenAI TTS (Premium ធានាមិនគាំង)
-                tts_audio_path = "temp_khmer_audio.mp3"
-                response_tts = client.audio.speech.create(
-                    model="tts-1",
-                    voice="nova", # សំឡេងស្រីរបស់ OpenAI
-                    input=khmer_text[:4000] # ការពារកុំឱ្យលើសកំណត់
-                )
-                response_tts.stream_to_file(tts_audio_path)
-
-                # ច. លាយសំឡេងចូលគ្នា
-                final_output_path = "final_dubbed_video.mp4"
-                merge_cmd = [
-                    "ffmpeg", "-y",
-                    "-i", video_path,
-                    "-i", tts_audio_path,
-                    "-filter_complex", "[0:a]volume=0.15[a1];[1:a]volume=1.5[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]",
-                    "-map", "0:v",
-                    "-map", "[a]",
-                    "-c:v", "copy", 
-                    "-c:a", "aac",
-                    final_output_path
-                ]
-                subprocess.run(merge_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-                st.success("🎉 ជោគជ័យ ១០០%! App ដើរដោយថាមពល OpenAI VIP ដាច់កូដ Block ទាំងស្រុង!")
-                st.video(final_output_path)
+                srt_content = ""
                 
+                # បកប្រែ និងរៀបចំទម្រង់ SRT
+                st.write("កំពុងបកប្រែ...")
+                progress_bar = st.progress(0)
+                
+                for i, segment in enumerate(segments):
+                    start_time = format_timestamp(segment["start"])
+                    end_time = format_timestamp(segment["end"])
+                    original_text = segment["text"]
+
+                    # បកប្រែ
+                    response_trans = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system", "content": "You are a professional translator. Translate the following text to Khmer. Return ONLY the translated text."},
+                            {"role": "user", "content": original_text}
+                        ]
+                    )
+                    khmer_text = response_trans.choices[0].message.content.strip()
+
+                    srt_content += f"{i + 1}\n{start_time} --> {end_time}\n{khmer_text}\n\n"
+                    
+                    # Update progress bar
+                    progress_bar.progress((i + 1) / len(segments))
+                    time.sleep(0.5) # សម្រាកបន្តិចកុំឱ្យ API ដំណើរការញាប់ពេក
+
+                st.success("🎉 ការបង្កើត Subtitle ជោគជ័យ!")
+                
+                # បង្កើតប៊ូតុងសម្រាប់ទាញយកឯកសារ .srt
+                st.download_button(
+                    label="⬇️ ទាញយកឯកសារ Subtitle (.srt)",
+                    data=srt_content,
+                    file_name="khmer_subtitle.srt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+
+                # លុបឯកសារបណ្តោះអាសន្ន
+                os.remove(video_path)
+                os.remove(audio_path)
+
             except Exception as e:
                 st.error(f"❌ មានបញ្ហា: {e}")
