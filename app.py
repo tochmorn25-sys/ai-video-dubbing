@@ -1,15 +1,18 @@
 import streamlit as st
 import pandas as pd
 import whisper
-from deep_translator import GoogleTranslator
 import edge_tts
 import asyncio
 import os
 import moviepy.editor as mp
+from openai import OpenAI # ទាញយកប្រព័ន្ធ OpenAI
 
 # ១. រៀបចំទំហំ និងឈ្មោះ Web App
-st.set_page_config(page_title="AI Video Dubbing", layout="centered")
-st.title("🎬 កម្មវិធីបកប្រែ និងបញ្ចូលសំឡេង AI (Khmer Dubbing)")
+st.set_page_config(page_title="AI Video Dubbing Pro", layout="centered")
+st.title("🎬 កម្មវិធីបកប្រែ និងបញ្ចូលសំឡេង AI (Khmer Dubbing Pro)")
+
+# បន្ថែមកន្លែងដាក់ API Key របស់ OpenAI ដើម្បីសុវត្ថិភាព
+api_key = st.text_input("🔑 សូមបញ្ចូល OpenAI API Key របស់អ្នកទីនេះ (ចាប់ផ្តើមដោយ sk-...):", type="password")
 
 # ២. កន្លែងសម្រាប់ Upload វីដេអូ
 uploaded_file = st.file_uploader("📥 សូមបញ្ចូលវីដេអូទីនេះ (Upload Video)", type=["mp4", "mov"])
@@ -39,10 +42,12 @@ with col3:
         
 with col4:
     if st.button("✅ Dubbed (ចាប់ផ្តើមបញ្ចូលសំឡេង)", type="primary", use_container_width=True):
-        if uploaded_file is None:
+        if not api_key:
+            st.error("⚠️ សូមបញ្ចូលកូដសោរ OpenAI API Key ជាមុនសិន មុននឹងចាប់ផ្តើម!")
+        elif uploaded_file is None:
             st.warning("⚠️ សូម Upload វីដេអូជាមុនសិនមុននឹងចុចប៊ូតុងនេះ!")
         else:
-            with st.spinner("⏳ កំពុងដំណើរការ AI... (សូមរង់ចាំបន្តិច អាចចំណាយពេលយូរអាស្រ័យលើវីដេអូ)"):
+            with st.spinner("⏳ កំពុងដំណើរការ AI Pro... (ប្រព័ន្ធដើរលឿនជាងមុន)"):
                 try:
                     # ជំហានក: រក្សាទុកវីដេអូដែលបាន Upload
                     video_path = "temp_video.mp4"
@@ -59,9 +64,16 @@ with col4:
                     result = model.transcribe(audio_path)
                     original_text = result["text"]
 
-                    # ជំហានឃ: បកប្រែជាភាសាខ្មែរ
-                    translator = GoogleTranslator(source='auto', target='km')
-                    khmer_text = translator.translate(original_text)
+                    # ជំហានឃ: បកប្រែជាភាសាខ្មែរ ដោយប្រើ OpenAI API (ដោះស្រាយបញ្ហាគាំង Server Error)
+                    client = OpenAI(api_key=api_key)
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini", # ប្រើម៉ូដែលនេះលឿន និងចំណាយតិចបំផុត
+                        messages=[
+                            {"role": "system", "content": "You are a professional translator. Translate the following text to Khmer (Cambodian). Return ONLY the translated text, without any quotes or extra explanations."},
+                            {"role": "user", "content": original_text}
+                        ]
+                    )
+                    khmer_text = response.choices[0].message.content.strip()
 
                     # បង្ហាញតារាងអត្ថបទ (Transcript Table) នៅលើវេបសាយ
                     st.markdown("### 📝 TRANSCRIPT")
@@ -81,7 +93,7 @@ with col4:
                     # បញ្ចេញវីដេអូថ្មី
                     final_video.write_videofile(final_output_path, codec="libx264", audio_codec="aac", logger=None)
 
-                    st.success("🎉 ការបញ្ចូលសំឡេងជោគជ័យ ១០០%! សូមទស្សនាវីដេអូថ្មីរបស់អ្នកនៅខាងក្រោម៖")
+                    st.success("🎉 ការបញ្ចូលសំឡេងជោគជ័យ ១០០%! ដោយប្រើប្រព័ន្ធ OpenAI Pro!")
                     st.video(final_output_path)
 
                     # បិទហ្វាល
