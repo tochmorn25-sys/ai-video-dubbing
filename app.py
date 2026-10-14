@@ -7,7 +7,7 @@ import tempfile
 import time
 
 st.set_page_config(page_title="AI Subtitle Generator", layout="centered")
-st.title("🎬 កម្មវិធីបង្កើត Subtitle ខ្មែរ (.srt)")
+st.title("🎬 កម្មវិធីបង្កើត Subtitle ខ្មែរ (Pro Version)")
 
 api_key = st.text_input("🔑 សូមបញ្ចូល OpenAI API Key របស់អ្នកទីនេះ:", type="password")
 uploaded_file = st.file_uploader("📥 សូមបញ្ចូលវីដេអូទីនេះ (Upload Video)", type=["mp4", "mov"])
@@ -28,7 +28,7 @@ if st.button("📝 បង្កើត Subtitle ខ្មែរ (.srt)", type="pr
     elif uploaded_file is None:
         st.warning("⚠️ សូម Upload វីដេអូជាមុនសិន!")
     else:
-        with st.spinner("⏳ កំពុងដំណើរការ AI (សូមរង់ចាំ)..."):
+        with st.spinner("⏳ កំពុងដំណើរការ AI ម៉ូដែលថ្មី (អាចចំណាយពេលយូរជាងមុនបន្តិច)..."):
             try:
                 client = OpenAI(api_key=api_key)
 
@@ -38,46 +38,63 @@ if st.button("📝 បង្កើត Subtitle ខ្មែរ (.srt)", type="pr
 
                 audio_path = video_path.replace(".mp4", ".wav")
                 
-                subprocess.run(["ffmpeg", "-y", "-i", video_path, "-q:a", "0", "-map", "a", audio_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # បង្កើនគុណភាពសំឡេងមុននឹងឱ្យ Whisper ស្តាប់
+                subprocess.run(["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-                model = whisper.load_model("base")
-                result = model.transcribe(audio_path)
+                # ប្តូរពីម៉ូដែល "base" ទៅ "small" ដើម្បីឱ្យវាស្តាប់បានច្បាស់ជាងមុន (ចំណាយពេលយូរជាងមុនបន្តិច តែលទ្ធផលល្អជាង)
+                model = whisper.load_model("small")
+                
+                # កំណត់លក្ខខណ្ឌឱ្យ Whisper ដើម្បីកាត់បន្ថយការចាប់សំឡេងអត់ន័យ
+                result = model.transcribe(audio_path, no_speech_threshold=0.6, logprob_threshold=-1.0, condition_on_previous_text=False)
                 segments = result["segments"]
 
                 srt_content = ""
-                st.write("កំពុងបកប្រែ...")
+                st.write("កំពុងបកប្រែ និងរៀបចំអត្ថបទ...")
                 progress_bar = st.progress(0)
                 
-                srt_index = 1 # បង្កើតប្រព័ន្ធរាប់លេខថ្មី
+                srt_index = 1 
                 
                 for i, segment in enumerate(segments):
                     start_time = format_timestamp(segment["start"])
                     end_time = format_timestamp(segment["end"])
-                    original_text = segment["text"]
+                    original_text = segment["text"].strip()
+
+                    # លក្ខខណ្ឌកាត់ចោលភ្លាមៗ បើអក្សរដើមខ្លីពេក ឬគ្មានអត្ថន័យ
+                    if len(original_text) < 2 or original_text in ["♪", "...", "(sigh)", "(groans)"]:
+                        continue
 
                     response_trans = client.chat.completions.create(
-                        model="gpt-4o-mini",
+                        model="gpt-4o", # ប្តូរទៅប្រើម៉ូដែល GPT-4o ធំតែម្ដង ដើម្បីបកប្រែបានឆ្លាត និងរលូនជាង
                         messages=[
-                            {"role": "system", "content": "You are a professional subtitle translator. Translate the given text to Khmer (Cambodian). Return ONLY the translated Khmer text. DO NOT include any Chinese characters or English words. If the text contains only sound effects (like 'haha', 'uh', 'ah', 'oh') or is incomprehensible, DO NOT apologize, simply return nothing (blank)."},
+                            {"role": "system", "content": """You are an expert movie subtitle translator. 
+                            1. Translate the provided text into natural, spoken Khmer (Cambodian). 
+                            2. CRITICAL: Your output MUST contain ONLY Khmer script. ABSOLUTELY NO Chinese characters, NO English words, NO symbols (like ♪).
+                            3. If the input text seems to be just a sound effect (like sighing, moaning, laughing) or doesn't make logical sense as a spoken sentence, DO NOT translate it. Just output the word 'SKIP'.
+                            4. Do not apologize or explain."""},
                             {"role": "user", "content": original_text}
                         ]
                     )
                     khmer_text = response_trans.choices[0].message.content.strip()
                     
-                    # លក្ខខណ្ឌថ្មី: បញ្ចូលទៅក្នុងហ្វាល SRT លុះត្រាតែមានអក្សរ (មិនទទេ)
-                    if khmer_text:
-                        srt_content += f"{srt_index}\n{start_time} --> {end_time}\n{khmer_text}\n\n"
-                        srt_index += 1 # បូកលេខបន្ត
+                    # ពិនិត្យមើលថាបើ AI ប្រាប់ឱ្យ SKIP គឺយើងរំលងចោល
+                    if khmer_text != "SKIP" and khmer_text != "":
+                         # លុបអក្សរចិនចេញក្រែងលោវានៅសល់
+                         import re
+                         khmer_text = re.sub(r'[\u4e00-\u9fff]+', '', khmer_text).strip()
+                         
+                         if len(khmer_text) > 1:
+                             srt_content += f"{srt_index}\n{start_time} --> {end_time}\n{khmer_text}\n\n"
+                             srt_index += 1
                     
                     progress_bar.progress((i + 1) / len(segments))
                     time.sleep(0.5)
 
-                st.success("🎉 ការបង្កើត Subtitle ជោគជ័យ!")
+                st.success("🎉 ការបង្កើត Subtitle រួចរាល់ដោយជោគជ័យ!")
                 
                 st.download_button(
                     label="⬇️ ទាញយកឯកសារ Subtitle (.srt)",
                     data=srt_content,
-                    file_name="khmer_subtitle.srt",
+                    file_name="khmer_subtitle_pro.srt",
                     mime="text/plain",
                     use_container_width=True
                 )
