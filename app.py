@@ -53,10 +53,11 @@ if st.button("📝 បង្កើត Subtitle ខ្មែរ (.srt)", type="pr
                     end_time = format_timestamp(segment["end"])
                     original_text = segment["text"]
 
+                    # បកប្រែ និងរៀបចំទម្រង់ SRT (កូដថ្មី កាត់បន្ថយអក្សរចិន អង់គ្លេស និងសំឡេងរំខាន)
                     response_trans = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[
-                            {"role": "system", "content": "You are a professional translator. Translate the following text to Khmer. Return ONLY the translated text."},
+                            {"role": "system", "content": "You are a professional subtitle translator. Translate the given text to Khmer (Cambodian). Return ONLY the translated Khmer text. DO NOT include any Chinese characters or English words. If the text contains only sound effects (like 'haha', 'uh', 'ah', 'oh') or is incomprehensible, DO NOT apologize and DO NOT say 'I cannot translate'. Simply return a blank space."},
                             {"role": "user", "content": original_text}
                         ]
                     )
