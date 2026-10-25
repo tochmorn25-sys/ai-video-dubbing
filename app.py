@@ -42,10 +42,10 @@ if st.button("📝 បង្កើត Subtitle ខ្មែរ (.srt)", type="pr
                 subprocess.run(["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
                 # ប្តូរពីម៉ូដែល "base" ទៅ "small" ដើម្បីឱ្យវាស្តាប់បានច្បាស់ជាងមុន (ចំណាយពេលយូរជាងមុនបន្តិច តែលទ្ធផលល្អជាង)
-                model = whisper.load_model("small")
+                model = whisper.load_model("medium")
                 
                 # កំណត់លក្ខខណ្ឌឱ្យ Whisper ដើម្បីកាត់បន្ថយការចាប់សំឡេងអត់ន័យ
-                result = model.transcribe(audio_path, no_speech_threshold=0.6, logprob_threshold=-1.0, condition_on_previous_text=False)
+                result = model.transcribe(audio_pa, no_speech_threshold=0.6, logprob_threshold=-1.0, condition_on_previous_text=False)
                 segments = result["segments"]
 
                 srt_content = ""
