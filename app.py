@@ -48,6 +48,8 @@ if st.button("📝 បង្កើត Subtitle ខ្មែរ (.srt)", type="pr
                 st.write("កំពុងបកប្រែ...")
                 progress_bar = st.progress(0)
                 
+                srt_index = 1 # បង្កើតប្រព័ន្ធរាប់លេខថ្មី
+                
                 for i, segment in enumerate(segments):
                     start_time = format_timestamp(segment["start"])
                     end_time = format_timestamp(segment["end"])
@@ -56,12 +58,16 @@ if st.button("📝 បង្កើត Subtitle ខ្មែរ (.srt)", type="pr
                     response_trans = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[
-                            {"role": "system", "content": "You are a professional translator. Translate the following text to Khmer. Return ONLY the translated text."},
+                            {"role": "system", "content": "You are a professional subtitle translator. Translate the given text to Khmer (Cambodian). Return ONLY the translated Khmer text. DO NOT include any Chinese characters or English words. If the text contains only sound effects (like 'haha', 'uh', 'ah', 'oh') or is incomprehensible, DO NOT apologize, simply return nothing (blank)."},
                             {"role": "user", "content": original_text}
                         ]
                     )
                     khmer_text = response_trans.choices[0].message.content.strip()
-                    srt_content += f"{i + 1}\n{start_time} --> {end_time}\n{khmer_text}\n\n"
+                    
+                    # លក្ខខណ្ឌថ្មី: បញ្ចូលទៅក្នុងហ្វាល SRT លុះត្រាតែមានអក្សរ (មិនទទេ)
+                    if khmer_text:
+                        srt_content += f"{srt_index}\n{start_time} --> {end_time}\n{khmer_text}\n\n"
+                        srt_index += 1 # បូកលេខបន្ត
                     
                     progress_bar.progress((i + 1) / len(segments))
                     time.sleep(0.5)
