@@ -1,89 +1,105 @@
 import streamlit as st
-import whisper
 import os
 import subprocess
-from openai import OpenAI
 import tempfile
-import time
+from faster_whisper import WhisperModel
+from openai import OpenAI
 
-st.set_page_config(page_title="AI Subtitle Generator", layout="centered")
-st.title("🎬 កម្មវិធីបង្កើត Subtitle ខ្មែរ (.srt)")
+st.set_page_config(page_title="AI Subtitle Khmer Pro", layout="centered")
+st.title("🎬 កម្មវិធីបង្កើត Subtitle ខ្មែរ Pro")
 
-api_key = st.text_input("🔑 សូមបញ្ចូល OpenAI API Key របស់អ្នកទីនេះ:", type="password")
-uploaded_file = st.file_uploader("📥 សូមបញ្ចូលវីដេអូទីនេះ (Upload Video)", type=["mp4", "mov"])
+api_key = st.text_input("🔑 OpenAI API Key (បើវីដេអូជាភាសាខ្មែរ មិនចាំបាច់ដាក់ក៏បាន):", type="password")
+uploaded_file = st.file_uploader("📥 Upload វីដេអូ", type=["mp4", "mov", "mp3", "wav", "m4a"])
 
-if uploaded_file is not None:
-    st.video(uploaded_file)
-
-def format_timestamp(seconds):
+def format_timestamp(seconds: float):
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
-    seconds = seconds % 60
-    milliseconds = int((seconds - int(seconds)) * 1000)
-    return f"{hours:02d}:{minutes:02d}:{int(seconds):02d},{milliseconds:03d}"
+    secs = int(seconds % 60)
+    millis = int((seconds - int(seconds)) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
-if st.button("📝 បង្កើត Subtitle ខ្មែរ (.srt)", type="primary", use_container_width=True):
-    if not api_key:
-        st.error("⚠️ សូមបញ្ចូលកូដសោរ OpenAI API Key ជាមុនសិន!")
-    elif uploaded_file is None:
-        st.warning("⚠️ សូម Upload វីដេអូជាមុនសិន!")
+# Load model ម្តងគត់ លឿន
+@st.cache_resource
+def load_model():
+    # small = លឿន, medium = ច្បាស់ជាងសម្រាប់ខ្មែរ
+    return WhisperModel("small", device="cpu", compute_type="int8")
+
+if uploaded_file:
+    st.video(uploaded_file)
+
+if st.button("📝 បង្កើត Subtitle", type="primary", use_container_width=True):
+    if not uploaded_file:
+        st.warning("⚠️ សូម Upload វីដេអូសិន!")
     else:
-        with st.spinner("⏳ កំពុងដំណើរការ AI (សូមរង់ចាំ)..."):
+        with st.spinner("⏳ កំពុងស្តាប់ និងចាប់ពេលវេលា..."):
             try:
-                client = OpenAI(api_key=api_key)
-
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
                     tmp_vid.write(uploaded_file.read())
                     video_path = tmp_vid.name
+                audio_path = video_path + ".wav"
 
-                audio_path = video_path.replace(".mp4", ".wav")
-                
-                subprocess.run(["ffmpeg", "-y", "-i", video_path, "-q:a", "0", "-map", "a", audio_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run([
+                    "ffmpeg", "-y", "-i", video_path,
+                    "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", audio_path
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-                model = whisper.load_model("base")
-                result = model.transcribe(audio_path)
-                segments = result["segments"]
+                model = load_model()
+                # vad_filter = សំខាន់ខ្លាំង ធ្វើអោយកាត់សំលេងរំខាន និងចាប់ពេលវេលាត្រូវ
+                segments, info = model.transcribe(
+                    audio_path, 
+                    language="km" if info else None, # auto-detect តែបើដឹងថាខ្មែរ ដាក់ "km" ទៅ
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=500),
+                    beam_size=5,
+                    initial_prompt="ជំរាបសួរ សួស្តី ខ្មែរ កម្ពុជា"
+                )
 
                 srt_content = ""
-                st.write("កំពុងបកប្រែ...")
-                progress_bar = st.progress(0)
+                srt_index = 1
                 
-                srt_index = 1 # បង្កើតប្រព័ន្ធរាប់លេខថ្មី
+                # សម្រាប់ប្រមូល text ទាំងអស់ បកប្រែម្ដង (លឿនជាង)
+                all_segments = list(segments)
                 
-                for i, segment in enumerate(segments):
-                    start_time = format_timestamp(segment["start"])
-                    end_time = format_timestamp(segment["end"])
-                    original_text = segment["text"]
+                st.write(f"រកឃើញ {len(all_segments)} ប្រយោគ - ភាសា: {info.language}")
 
-                    response_trans = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "system", "content": "You are a professional subtitle translator. Translate the given text to Khmer (Cambodian). Return ONLY the translated Khmer text. DO NOT include any Chinese characters or English words. If the text contains only sound effects (like 'haha', 'uh', 'ah', 'oh') or is incomprehensible, DO NOT apologize, simply return nothing (blank)."},
-                            {"role": "user", "content": original_text}
-                        ]
-                    )
-                    khmer_text = response_trans.choices[0].message.content.strip()
-                    
-                    # លក្ខខណ្ឌថ្មី: បញ្ចូលទៅក្នុងហ្វាល SRT លុះត្រាតែមានអក្សរ (មិនទទេ)
-                    if khmer_text:
-                        srt_content += f"{srt_index}\n{start_time} --> {end_time}\n{khmer_text}\n\n"
-                        srt_index += 1 # បូកលេខបន្ត
-                    
-                    progress_bar.progress((i + 1) / len(segments))
-                    time.sleep(0.5)
+                progress = st.progress(0)
 
-                st.success("🎉 ការបង្កើត Subtitle ជោគជ័យ!")
-                
-                st.download_button(
-                    label="⬇️ ទាញយកឯកសារ Subtitle (.srt)",
-                    data=srt_content,
-                    file_name="khmer_subtitle.srt",
-                    mime="text/plain",
-                    use_container_width=True
-                )
+                # បើភាសាដើមជាខ្មែរ មិនបាច់បកប្រែ
+                is_khmer = info.language == "km"
+                client = OpenAI(api_key=api_key) if (api_key and not is_khmer) else None
+
+                for i, seg in enumerate(all_segments):
+                    if seg.end - seg.start < 0.3:
+                        continue
+                    
+                    text = seg.text.strip()
+                    if not text:
+                        continue
+
+                    if not is_khmer and client:
+                        # បកប្រែតែបើមិនមែនខ្មែរ
+                        res = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": "Translate to natural, short spoken Khmer. Return only Khmer. If noise, return blank."},
+                                {"role": "user", "content": text}
+                            ]
+                        )
+                        text = res.choices[0].message.content.strip()
+
+                    if text:
+                        srt_content += f"{srt_index}\n{format_timestamp(seg.start)} --> {format_timestamp(seg.end)}\n{text}\n\n"
+                        srt_index += 1
+                    
+                    progress.progress((i + 1) / len(all_segments))
+
+                st.success(f"🎉 ជោគជ័យ! បាន {srt_index-1} បន្ទាត់")
+                st.text_area("Preview", srt_content, height=350)
+                st.download_button("⬇️ ទាញយក khmer.srt", srt_content, "khmer_subtitle.srt", use_container_width=True)
 
                 os.remove(video_path)
                 os.remove(audio_path)
 
             except Exception as e:
-                st.error(f"❌ មានបញ្ហា: {e}")
+                st.error(f"❌ Error: {e}")
+                
